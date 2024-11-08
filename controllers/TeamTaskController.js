@@ -1,15 +1,15 @@
-import TaskModel from '../models/Task.js';
+//import TaskModel from '../models/Task.js';
+import TeamTask from '../models/TeamTask.js';
 import Category from '../models/Category.js';
 import Deadline from '../models/Deadline.js';
 import Priority from '../models/Priority.js';
 import { getDateAfterAWeek } from '../middlewares/date.js';
 import User from '../models/User.js';
-import Goal from '../models/Goal.js';
+import Project from '../models/Project.js'; 
 
 export const getAll = async (req, res) => {
     try {
-        const user = await User.findById(req.userId);
-        const tasks = await TaskModel.find({user: user._id}).populate('user').populate('deadline').
+        const tasks = await TeamTask.find({user: req.userId}).populate('user').populate('deadline').
         populate('category').populate('priority').exec();
 
         res.json(tasks);
@@ -26,7 +26,7 @@ export const getOne = async (req, res) => {
 
         const taskId = req.params.id;
        
-        TaskModel.findById(taskId)
+        TeamTask.findById(taskId)
                 .then(doc => {
 
                     if(!doc) {
@@ -58,7 +58,7 @@ export const remove = async (req, res) => {
     try {
         const taskId = req.params.id;
 
-        TaskModel.findOneAndDelete({ _id: taskId })
+        TeamTask.findOneAndDelete({ _id: taskId })
                 .then(async doc => {
                     if(!doc) {
                         return res.status(404).json({
@@ -67,28 +67,35 @@ export const remove = async (req, res) => {
                     };
 
                     const user = await User.findById(req.userId);
-                    user.tasks.pull(doc._id);
+                    user.teamTasks.pull(doc._id);
                     await user.save();
+
+                    //удаляем у всех пользователей, которые учавствуют
+                    for (let id of doc.users._id) {
+                        friend = await User.findById(id);
+                        friend.teamTasks.pull(doc._id);
+                        await friend.save();
+                    };
 
                     let category = await Category.findOne({ _id: doc.category._id });
                     if(category){
-                        category.tasks.pull(doc._id);
+                        category.teamTasks.pull(doc._id);
                         await category.save();
                     };
 
                     let deadline = await Deadline.findOne({ _id: doc.deadline._id });
                     if(deadline){
-                        deadline.tasks.pull(doc._id);
+                        deadline.teamTasks.pull(doc._id);
                         await deadline.save();
-                        console.log(deadline.tasks.length)
-                        if(!deadline.tasks.length){
+                        console.log(deadline.teamTasks.length)
+                        if(!deadline.teamTasks.length){
                             await Deadline.findOneAndDelete({_id: deadline._id});
                         }
                     };
 
                     let priority = await Priority.findOne({ _id: doc.priority._id });
                     if(priority){
-                        priority.tasks.pull(doc._id);
+                        priority.teamTasks.pull(doc._id);
                         await priority.save();
                     };
 
@@ -143,10 +150,26 @@ export const create = async (req, res) => {
         let priority = await Priority.findOne({ title: req.body.priority });
         if (!priority) {
             priority = await Priority.findOne({ title: "without" });
-        }
+        };
         const savedPriority = await priority.save();
 
-        const doc = new TaskModel({
+        let project = await Project.findById(req.body.project);
+        if(!project){
+            return res.status(404).json({
+                message: "Project is not found",
+            });
+        };
+
+        for(let id of req.body.users){
+            let friend = await User.findById(id);
+            if(!friend){
+                return res.status(404).json({
+                    message: "Friend is not found",
+                });
+            }
+        };
+
+        const doc = new TeamTask({
             title: req.body.title,
             description: req.body.description,
             status: req.body.status,
@@ -154,22 +177,33 @@ export const create = async (req, res) => {
             category: category._id,
             deadline: savedDeadline._id,
             priority: savedPriority._id,
+            users: req.body.users,
+            project: project._id,
         });
 
         const task = await doc.save();
 
         const user = await User.findById(req.userId);
 
-        user.tasks.push(task._id);
-        category.tasks.push(task._id);
-        savedDeadline.tasks.push(task._id);
-        savedPriority.tasks.push(task._id);
+        user.teamTasks.push(task._id);
+        category.teamTasks.push(task._id);
+        savedDeadline.teamTasks.push(task._id);
+        savedPriority.teamTasks.push(task._id);
+        project.teamTasks.push(task._id);
+
+        for(let id of task.users){
+            id = id._id;
+            let friend = await User.findById(id);
+            friend.teamTasks.push(task._id);
+            await friend.save();
+        };
 
 
         await user.save();
         await category.save();
         await savedDeadline.save();
         await savedPriority.save();
+        await project.save();
         
 
         res.json(task);
@@ -186,48 +220,45 @@ export const update = async (req, res) => {
         const taskId = req.params.id;
         let category, deadline, priority;
 
-        const task = await TaskModel.findById(taskId);
+        const task = await TeamTask.findById(taskId);
         if (!task) {
             return res.status(404).json({
                 message: 'Task is not found',
             });
         }
 
-        if(req.body.status !== null){
-            const user = await User.findById(req.userId);
-            const goal = await Goal.findById(user.goal);
-            if (req.body.status){
-                goal.tasksCompleted += 1;
-                if(goal.tasksCompleted === goal.tasksReq){
-                    goal.status = true;
-                };
-                await goal.save();
-            }
-            else{
-                goal.tasksCompleted -= 1;
-                if(goal.tasksCompleted !== goal.tasksReq){
-                    goal.status = false;
-                };
-                await goal.save();
-            }
-        }
-
         if (req.body.category && task.category.name !== req.body.category) {
             const oldCategory = await Category.findById(task.category._id);
-            oldCategory.tasks.pull(task._id);
+            oldCategory.teamTasks.pull(task._id);
             await oldCategory.save();
         };
 
-        if (req.body.deadline && task.deadline.deadline !== req.body.deadline) {
+        if (req.body.deadline && task.deadline.deadline.toString() !== req.body.deadline) {
             const oldDeadline = await Deadline.findById(task.deadline._id);
-            oldDeadline.tasks.pull(task._id);
+            oldDeadline.teamTasks.pull(task._id);
             await oldDeadline.save();
         };
 
         if (req.body.priority && task.priority.title !== req.body.priority) {
             const oldPriority = await Priority.findById(task.priority._id);
-            oldPriority.tasks.pull(task._id);
+            oldPriority.teamTasks.pull(task._id);
             await oldPriority.save();
+        };
+
+        if (req.body.users && JSON.stringify(task.users._id) !== JSON.stringify(req.body.users)) {
+            // Удалить задачу из списка задач каждого текущего пользователя
+            for (let id of task.users._id) {
+                let user = await User.findById(id);
+                user.teamTasks.pull(task._id);
+                await user.save();
+            };
+
+            // Добавить задачу в список задач каждого нового пользователя
+            for (let id of req.body.users) {
+                let user = await User.findById(id);
+                user.teamTasks.push(task._id);
+                await user.save();
+            };
         };
 
         if(req.body.category){
@@ -237,7 +268,7 @@ export const update = async (req, res) => {
                     message: 'Category is not found',
                 });
             }
-            category.tasks.push(task._id);
+            category.teamTasks.push(task._id);
         }
         else{
             category = await Category.findOne({ _id: task.category._id});
@@ -250,7 +281,7 @@ export const update = async (req, res) => {
                     deadline: new Date(req.body.deadline),
                 });
             }
-            deadline.tasks.push(task._id);
+            deadline.teamTasks.push(task._id);
         }
         else{
             deadline = await Deadline.findById(task.deadline._id);
@@ -263,14 +294,14 @@ export const update = async (req, res) => {
                     message: 'Priority is not found',
                 });
             }
-            priority.tasks.push(task._id);
+            priority.teamTasks.push(task._id);
         }
         else{
             priority = await Priority.findById(task.priority._id);
         }
         const savedPriority = await priority.save();
 
-        TaskModel.updateOne({_id: taskId}, 
+        TeamTask.updateOne({_id: taskId}, 
         {
             title: req.body.title,
             description: req.body.description,
@@ -279,6 +310,8 @@ export const update = async (req, res) => {
             category: savedCategory._id,
             deadline: savedDeadline._id,
             priority: savedPriority._id,
+            users: req.body.users,
+            project: req.body.project,
         })
                 .then(async doc => {
                     if(!doc) {
@@ -286,36 +319,6 @@ export const update = async (req, res) => {
                             message: 'Task is not found',
                         });
                     }
-                    // if(req.body.category){
-                    //     let category = await Category.findOne({ _id: doc.category._id });
-                    //     if(!category) {
-                    //         return res.status(404).json({
-                    //             message: 'Category is not found',
-                    //         });
-                    //     }
-                    //     category.tasks.push(doc._id);
-                    //     await category.save();
-                    // }
-                    // if(req.body.deadline){
-                    //     let deadline = await Deadline.findOne({ _id: doc.deadline._id });
-                    //     if(!deadline) {
-                    //         deadline = new Deadline({
-                    //             deadline: new Date(req.body.deadline),
-                    //         });
-                    //     }
-                    //     deadline.tasks.push(doc._id);
-                    //     await deadline.save();
-                    // }
-                    // if(req.body.priority){
-                    //     let priority = await Priority.findOne({ _id: doc.priority._id });
-                    //     if(!priority) {
-                    //         return res.status(404).json({
-                    //             message: 'Priority is not found',
-                    //         });
-                    //     }
-                    //     priority.tasks.push(doc._id);
-                    //     await priority.save();
-                    // }
                     res.json({
                         success: true,
                     });

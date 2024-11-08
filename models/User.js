@@ -15,6 +15,30 @@ const UserSchema = new mongoose.Schema({
         required: true,
     },
     avatarUrl: String,
+    projects: [{
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Project'
+    }],
+    tasks: [{
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Task'
+    }],
+    teamTasks: [{
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'TeamTask'
+    }],
+    statistics: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Statistics'
+    },
+    goal: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Goal'
+    },
+    friends: [{
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User'
+    }],
 }, 
 {
     timestamps: true,

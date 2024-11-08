@@ -1,6 +1,7 @@
 import mongoose from 'mongoose';
+import Task from './Task.js';
 
-const TaskSchema = new mongoose.Schema({
+const TeamTaskSchema = new mongoose.Schema({
     title: {
         type: String,
         required: true,
@@ -27,13 +28,19 @@ const TaskSchema = new mongoose.Schema({
         type: mongoose.Schema.Types.ObjectId,
         ref: 'Priority',
     },
-    isEditing: {
-        type: Boolean,
-        default: false,
-    }
+    users: [{
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User',
+        required: true,
+    }],
+    project: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Project',
+        //required: true,
+    },
 }, 
 {
     timestamps: true,
 });
 
-export default mongoose.model('Task', TaskSchema);
+export default mongoose.model('TeamTask', TeamTaskSchema);

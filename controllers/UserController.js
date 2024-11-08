@@ -2,6 +2,7 @@ import jwt from 'jsonwebtoken';
 import bcrypt from 'bcrypt';
 
 import UserModel from '../models/User.js';
+import Goal from '../models/Goal.js';
 
 export const register = async (req, res) => {
   try {
@@ -29,6 +30,17 @@ export const register = async (req, res) => {
     );
 
     const { passwordHash, ...userData } = user._doc;
+    const initialGoal = new Goal({
+      user: user._id,
+      timeType: 'day',
+      tasksCompleted: 0,
+      tasksReq: 0, 
+      status: false, 
+    });
+
+    await initialGoal.save();
+    user.goal = initialGoal._id;
+    user.save();
 
     res.json({
       ...userData,
@@ -84,6 +96,23 @@ export const login = async (req, res) => {
   }
 };
 
+export const getAll = async (req, res) => {
+  try {
+    const users = await UserModel.find()
+      .populate("name")
+      .populate("email")
+      .populate("avatarUrl")
+      .exec();
+
+    res.json(users);
+  } catch (err) {
+    console.log(err);
+    res.status(500).json({
+      message: "Can't get users",
+    });
+  }
+};
+
 export const getMe = async (req, res) => {
   try {
     const user = await UserModel.findById(req.userId);
@@ -104,3 +133,123 @@ export const getMe = async (req, res) => {
     });
   }
 };
+
+export const getFriends = async (req, res) => {
+  try {
+
+    const userId = req.params.id;
+   
+    UserModel.findById(userId).populate('friends')
+            .then(doc => {
+
+                if(!doc) {
+                    return res.status(404).json({
+                        message: 'Friend is not found',
+                    });
+                }
+
+                res.status(200).json(doc.friends);
+            })
+            .catch(err => {
+                if(err) {
+                    console.log(err);
+                    return res.status(500).json({
+                        message: "Can't return a friend",
+                    });
+                }
+
+            });
+} catch (err) {
+    console.log(err);
+    res.status(500).json({
+        message: "Can't get a friend",
+    });
+}
+};
+
+//Добавление друга
+export const addFriend = async (req, res) => {
+  try {
+    const userId = req.params.id;
+    const friendId = req.body.id;
+    const user = await UserModel.findById(userId);
+    const friend = await UserModel.findById(friendId);
+  
+    if (!user) {
+      return res.status(404).send({ message: 'User is not found' });
+    }
+
+    if (!friend) {
+      return res.status(404).send({ message: 'Friend is not found' });
+    }
+
+    if (user.friends.includes(friend._id)) {
+      return res.status(400).json({ message: 'Friend already added' });
+    }
+
+    if (user._id === friend._id) {
+      return res.status(400).json({ message: 'It is you :)' });
+    }
+
+    user.friends.push(friend._id);
+    await user.save();
+
+    res.status(200).json({ message: 'Friend added successfully' });
+
+  } catch (err) {
+      res.status(500).json({ error: err.message });
+  }
+};
+
+// Удаление друга из списка друзей пользователя
+export const deleteFriend = async (req, res) => {
+
+  try {
+      const userId = req.params.id;
+      const friendId = req.body.id;
+      const user = await UserModel.findById(userId);
+      if (!user) {
+        return res.status(404).json({
+          message: 'Пользователь не найден',
+        });
+      }
+      user.friends.pull(friendId);
+      await user.save();
+      res.status(200).json({ message: 'Друг успешно удален' });
+  } catch (err) {
+      res.status(500).json({ error: err.message });
+  }
+};
+
+export const update = async (req, res) => {
+  try {
+      UserModel.updateOne({_id: req.userId}, 
+      {
+        name: req.body.name,
+      })
+              .then(async doc => {
+                  if(!doc) {
+                      return res.status(404).json({
+                          message: 'User is not found',
+                      });
+                  }
+                  res.json({
+                      success: true,
+                  });
+              })
+              .catch(err => {
+                  if(err) {
+                      console.log(err);
+                      return res.status(500).json({
+                          message: "Can't update a User",
+                      });
+                  }
+  
+              });
+  } catch (err) {
+      console.log(err);
+      res.status(500).json({
+          message: "Can't update a User",
+      });
+  }
+}
